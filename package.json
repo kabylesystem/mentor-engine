@@ -1,0 +1,23 @@
+{
+  "name": "mentor-engine",
+  "version": "0.1.0",
+  "description": "A persistent markdown memory that several AI agents can read and write at once.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "brain": "./src/cli.mjs"
+  },
+  "exports": "./src/brain.mjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "files": [
+    "src",
+    "example-brain",
+    "README.md",
+    "LICENSE"
+  ]
+}
