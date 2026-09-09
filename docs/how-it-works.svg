@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 460" width="900" height="460" font-family="ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, monospace">
+  <rect width="900" height="460" rx="10" fill="#0d1117"/>
+
+  <text x="28" y="38" fill="#8b949e" font-size="12" letter-spacing="1.6">HOW IT WORKS</text>
+
+  <!-- writers -->
+  <text x="28" y="76" fill="#8b949e" font-size="12">1. several clients write</text>
+  <g fill="#0d1117" stroke="#30363d">
+    <rect x="28" y="90" width="176" height="34" rx="6"/>
+    <rect x="28" y="132" width="176" height="34" rx="6"/>
+    <rect x="28" y="174" width="176" height="34" rx="6"/>
+    <rect x="28" y="216" width="176" height="34" rx="6"/>
+  </g>
+  <g fill="#c9d1d9" font-size="13">
+    <text x="44" y="112">coding agent A</text>
+    <text x="44" y="154">coding agent B</text>
+    <text x="44" y="196">phone bot</text>
+    <text x="44" y="238">chat distiller</text>
+  </g>
+  <text x="28" y="278" fill="#d29922" font-size="11.5">no coordinator between them</text>
+  <text x="28" y="296" fill="#d29922" font-size="11.5">push fails often, rebase and retry</text>
+
+  <!-- arrows in -->
+  <g stroke="#3fb950" stroke-width="1.6" fill="none" marker-end="url(#a)">
+    <path d="M204 107 L 300 152"/>
+    <path d="M204 149 L 300 162"/>
+    <path d="M204 191 L 300 172"/>
+    <path d="M204 233 L 300 182"/>
+  </g>
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0 0 L7 3.5 L0 7 z" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <!-- brain -->
+  <text x="312" y="76" fill="#8b949e" font-size="12">2. one brain, plain markdown in git</text>
+  <rect x="312" y="90" width="238" height="206" rx="8" fill="#0d1117" stroke="#3fb950" stroke-width="1.4"/>
+  <text x="330" y="116" fill="#3fb950" font-size="13" font-weight="600">brain/</text>
+  <g font-size="12.5">
+    <text x="330" y="146" fill="#c9d1d9">self/</text>
+    <text x="404" y="146" fill="#6e7681">edited by hand</text>
+    <text x="330" y="172" fill="#c9d1d9">journal/</text>
+    <text x="404" y="172" fill="#6e7681">one file per day</text>
+    <text x="330" y="198" fill="#c9d1d9">notes/</text>
+    <text x="404" y="198" fill="#6e7681">kept whole</text>
+    <text x="330" y="224" fill="#c9d1d9">reviews/</text>
+    <text x="404" y="224" fill="#6e7681">latest one read</text>
+  </g>
+  <line x1="330" y1="242" x2="532" y2="242" stroke="#30363d"/>
+  <text x="330" y="264" fill="#79c0ff" font-size="11.5">agents append only, never rewrite self/</text>
+  <text x="330" y="282" fill="#6e7681" font-size="11.5">every write is a commit</text>
+
+  <!-- arrow to assemble -->
+  <path d="M550 190 L 616 190" stroke="#3fb950" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+
+  <!-- assemble -->
+  <text x="628" y="76" fill="#8b949e" font-size="12">3. assemble under a budget</text>
+  <rect x="628" y="90" width="244" height="206" rx="8" fill="#0d1117" stroke="#79c0ff" stroke-width="1.4"/>
+  <text x="646" y="116" fill="#79c0ff" font-size="13" font-weight="600">assemble({ tokens })</text>
+
+  <text x="646" y="144" fill="#6e7681" font-size="11.5">kept, in this order</text>
+  <g font-size="12.5" fill="#c9d1d9">
+    <text x="646" y="166">1. profile, never dropped</text>
+    <text x="646" y="188">2. journal, newest day first</text>
+    <text x="646" y="210">3. notes, then last review</text>
+  </g>
+  <line x1="646" y1="226" x2="854" y2="226" stroke="#30363d"/>
+  <text x="646" y="248" fill="#d29922" font-size="11.5">a day that does not fit</text>
+  <text x="646" y="266" fill="#d29922" font-size="11.5">is skipped whole, never cut</text>
+  <text x="646" y="284" fill="#6e7681" font-size="11.5">what was left out is returned</text>
+
+  <!-- budget bar -->
+  <text x="28" y="348" fill="#8b949e" font-size="12">4. the agent gets the context, and knows what is missing</text>
+  <rect x="28" y="362" width="844" height="26" rx="4" fill="#161b22" stroke="#30363d"/>
+  <rect x="29" y="363" width="300" height="24" rx="3" fill="#238636"/>
+  <rect x="329" y="363" width="196" height="24" fill="#1f6feb"/>
+  <rect x="525" y="363" width="120" height="24" fill="#8957e5"/>
+  <text x="44" y="379" fill="#ffffff" font-size="11.5">profile</text>
+  <text x="345" y="379" fill="#ffffff" font-size="11.5">journal, 9 days kept</text>
+  <text x="541" y="379" fill="#ffffff" font-size="11.5">notes</text>
+  <text x="660" y="379" fill="#6e7681" font-size="11.5">budget left</text>
+
+  <text x="28" y="416" fill="#d29922" font-size="12">dropped: journal, 11 day files did not fit</text>
+  <text x="28" y="436" fill="#6e7681" font-size="11.5">so the agent can say what it is missing instead of answering with a hole in it</text>
+</svg>

@@ -1,95 +1,60 @@
 # mentor-engine
 
-Persistent memory for AI agents: a markdown brain, several writers, and a context assembler
-that tells you what it left out.
+**A memory for AI agents, kept as markdown files in a git repository.**
 
-## The problem
+You write to it from anywhere: a script, a phone bot, a coding agent. When an agent needs to
+know who it is talking to, it asks for the memory back, and gets as much of it as fits in the
+context window, plus a list of what did not fit.
 
-A model has no memory between two calls. Whatever memory an agent seems to have, someone
-built it. Once you build it, two things bite you, and neither is the storage.
+![How it works](docs/how-it-works.svg)
 
-**The brain grows forever, the context window does not.** Every call has to leave something
-out. Most systems handle this by truncating at some character count, which quietly removes
-the middle of a day and produces an agent that is confidently missing a week. That is worse
-than an agent that says it is missing a week.
+## In one minute
 
-**Several clients write to the same memory with no coordinator.** Mine has four: two coding
-agents, a Telegram bot I talk to while walking, and a script that turns chat conversations
-into dated notes. They do not know about each other. Two of them writing in the same second
-is normal traffic, not an incident.
+A model forgets everything between two calls. So if you want an assistant that remembers
+last Tuesday, you have to store last Tuesday yourself and hand it back every time.
 
-This repository is the smallest thing that handles both honestly.
+Storing it is easy. Two things are not:
 
-## What it actually does
+**The memory grows forever, the context window does not.** Something has to be left out on
+every call. Cutting at some character count silently removes the middle of a day, and you
+get an agent that is confidently missing a week.
 
-### Context assembly with a reported budget
+**Several clients write at once, with nothing coordinating them.** Mine has four. Two of
+them writing in the same second is normal traffic, not an incident.
 
-`assemble({ tokens })` fills the window under a stated policy and hands back an account of
-what it cost and what did not make it in.
+This repository handles those two, and stays boring everywhere else.
+
+## What it looks like
+
+Ask what the memory costs, and what got left out at a given budget:
+
+![brain budget](docs/budget.png)
+
+Read the daily journal back as structured data, without a database:
+
+![brain journal](docs/journal.png)
+
+Print the context you would put in a system prompt:
+
+![brain show](docs/show.png)
+
+## Try it in thirty seconds
 
 ```bash
-$ brain budget --tokens 200
-{
-  "tokens": 228,
-  "budget": 200,
-  "sections": 2,
-  "dropped": [
-    "profile: 228 tokens, over the whole budget of 200",
-    "journal: 2 day files did not fit",
-    "long notes: 77 tokens did not fit",
-    "latest review: did not fit"
-  ]
-}
+git clone https://github.com/kabylesystem/mentor-engine
+cd mentor-engine
+export BRAIN_DIR=./example-brain
+export BRAIN_GIT=0                      # work on disk, no commits, while you look around
+
+node src/cli.mjs budget --tokens 200    # what fits, what does not
+node src/cli.mjs show --tokens 400      # the context itself
+node src/cli.mjs journal --days 30      # the journal as JSON
+node src/cli.mjs note --type decision "dropped the second queue"
 ```
 
-The policy, in order:
+`example-brain/` is fictional. Point `BRAIN_DIR` at your own repository when you want a real one.
 
-1. **The profile is never dropped.** It is small, hand written, and it is what makes the
-   rest legible. If it alone exceeds the budget, the section is kept anyway and the overrun
-   is reported as an error, because silently returning nothing is not a better outcome.
-2. **The journal is filled newest first, one day file at a time.** A day that does not fit
-   whole is skipped whole. Half a day is worse than no day: an agent reading a truncated
-   Tuesday will answer as if it knows Tuesday.
-3. **Long notes, then the latest review**, added while budget remains.
-
-The token count is a heuristic, four characters per token by default and configurable. It
-is there to make the budget decision, not to bill you. Count properly with your provider's
-tokenizer if the number has to be exact.
-
-The point is the `dropped` array. An agent that can read it can say "I am missing the last
-eleven days" instead of answering with a hole in it.
-
-### Writes that survive four clients
-
-Every write is an append to a line or a new file, so concurrent writes do not conflict in
-content, only in git. A push therefore fails routinely rather than exceptionally: someone
-else committed first.
-
-`commit` handles that as the normal case. It commits, tries to push, and on failure pulls
-with rebase and retries with a growing pause, four times by default. If the rebase itself
-fails it aborts cleanly and leaves the work on disk rather than half applied. Every write
-returns its `sync` result, so a caller can tell the difference between "written and pushed"
-and "written locally, the push is behind".
-
-```js
-const { file, sync } = appendNote('the queue drains in 40 seconds', { source: 'telegram', type: 'fact' });
-// sync: { committed: true, pushed: true, attempts: 2 }
-```
-
-### A journal that parses back
-
-The daily file is written for a human to read and shaped so a machine can read it too.
-
-```
-- 14:30 [cli] (decision) dropped the second queue, one is enough
-```
-
-`parseJournal()` returns `{ date, time, source, type, text }` per line, so you can ask for
-every commitment made in the last week without a database. Unknown tags are preserved in
-the text rather than thrown away, because a memory that discards what it does not recognise
-loses exactly the things you did not plan for.
-
-## The brain layout
+## The brain
 
 ```
 brain/
@@ -99,39 +64,51 @@ brain/
   reviews/    periodic summaries, the most recent one is read back
 ```
 
-The split between `self/` and `journal/` is the load bearing decision. An agent that can
-rewrite the profile will drift it toward whatever was said in the last five minutes, and
-you will not notice for a month. The profile changes by hand. Everything the agent writes
-is append only, dated, and attributed to the client that wrote it.
+The split between `self/` and `journal/` is the decision everything else rests on. An agent
+allowed to rewrite the profile will drift it toward whatever was said five minutes ago, and
+you will not notice for a month. So the profile changes by hand, and everything an agent
+writes is appended, dated, and labelled with the client that wrote it.
 
-A fictional example lives in `example-brain/`.
+A journal line looks like this, written for a human and shaped so a machine can read it too:
 
-## Install and try it
-
-```bash
-npm install
-export BRAIN_DIR=./example-brain
-export BRAIN_GIT=0          # work on disk, no commits, while you look around
-
-node src/cli.mjs show --tokens 400
-node src/cli.mjs budget --tokens 200
-node src/cli.mjs journal --days 7
-node src/cli.mjs note --type decision "dropped the second queue"
+```
+- 14:30 [cli] (decision) dropped the second queue, one is enough
 ```
 
-## From code
+## How the budget works
+
+`assemble({ tokens })` fills the window in a fixed order and reports the result.
+
+1. **The profile is never dropped.** It is small and it makes everything else legible. If it
+   alone exceeds the budget it is kept anyway, and the overrun is reported as an error.
+2. **The journal is added newest day first, one file at a time.** A day that does not fit
+   whole is skipped whole. Half a day is worse than no day: an agent reading a truncated
+   Tuesday answers as if it knows Tuesday.
+3. **Long notes, then the latest review**, while budget remains.
 
 ```js
-import { appendNote, parseJournal, assemble } from 'mentor-engine';
-
-const brain = { dir: '/srv/brain', timezone: 'Europe/Paris' };
-
-appendNote('the queue drains in 40 seconds now', { source: 'telegram', type: 'fact', ...brain });
-
-const commitments = parseJournal({ days: 7, ...brain }).filter((e) => e.type === 'commitment');
-
-const { text, tokens, dropped } = assemble({ tokens: 12_000, ...brain });
+const { text, tokens, dropped } = assemble({ tokens: 12_000, dir: '/srv/brain' });
 if (dropped.length) console.warn('context is incomplete:', dropped);
+// dropped: [ 'journal: 11 day files did not fit' ]
+```
+
+The token count is a heuristic, four characters per token by default and configurable. It
+decides what fits. Use your provider's tokenizer if you need an exact number for billing.
+
+## How concurrent writes work
+
+Every write is an append to a line or a brand new file, so two clients never disagree about
+content, only about git. A push failing means someone committed first, which is the ordinary
+case here rather than an error.
+
+So `commit` treats it as ordinary: commit, try to push, and on failure pull with rebase and
+retry with a growing pause, four times by default. If the rebase itself fails it aborts
+cleanly and leaves the work on disk rather than half applied. Every write returns what
+happened, so a caller can tell "written and pushed" from "written locally, push is behind".
+
+```js
+const { file, sync } = appendNote('the queue drains in 40 seconds', { source: 'telegram', type: 'fact' });
+// sync: { committed: true, pushed: true, attempts: 2 }
 ```
 
 ## Note types
@@ -151,11 +128,11 @@ being searchable within a month.
 
 ## What it does not do
 
-- **No retrieval and no embeddings.** Selection is by recency and section, not by relevance
-  to the question. If your brain no longer fits a window even after budgeting, you want a
-  retrieval layer and this is the wrong tool.
-- **No merge resolution.** Rebase handles the ordinary case. A genuine content conflict is
-  reported and left for a human.
+- **No retrieval, no embeddings.** Selection is by recency and section, not by relevance to
+  the question. If your memory no longer fits a window even after budgeting, you want a
+  retrieval layer, and this is the wrong tool.
+- **No merge resolution.** Rebase covers the ordinary case. A real content conflict is
+  reported and left to a human.
 - **No access control.** Anyone who can read the repository can read the memory. That is why
   mine is private and only the engine is public.
 
@@ -179,8 +156,8 @@ npm test
 ```
 
 Twelve tests. The ones worth reading are the budget cases: a day file that does not fit is
-skipped whole, a profile larger than the entire budget is kept and reported, and an
-unknown note type is refused.
+skipped whole, a profile larger than the entire budget is kept and reported, and an unknown
+note type is refused.
 
 ## License
 
