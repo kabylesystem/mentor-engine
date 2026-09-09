@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendNote, parseJournal, saveNote, context, slugify, NOTE_TYPES } from '../src/brain.mjs';
+import { appendNote, parseJournal, saveNote, context, assemble, estimateTokens, slugify, NOTE_TYPES } from '../src/brain.mjs';
 
 function makeBrain() {
   const dir = mkdtempSync(join(tmpdir(), 'brain-'));
@@ -80,4 +80,43 @@ test('context is empty when there is no brain at that path', () => {
 test('slugify strips accents and punctuation, and never returns an empty name', () => {
   assert.equal(slugify('Réunion: notes du 9/09'), 'reunion-notes-du-9-09');
   assert.equal(slugify('***'), 'untitled');
+});
+
+test('assemble reports what it used and never silently drops the profile', () => {
+  const o = makeBrain();
+  mkdirSync(join(o.dir, 'journal'), { recursive: true });
+  for (const d of ['2026-09-06', '2026-09-07', '2026-09-08']) {
+    writeFileSync(join(o.dir, 'journal', `${d}.md`), `# ${d}\n\n- 09:00 [cli] (fact) ${'x'.repeat(400)}\n`);
+  }
+  const full = assemble({ journalDays: 100000, ...o });
+  assert.equal(full.budget, Infinity);
+  assert.deepEqual(full.dropped, []);
+  assert.ok(full.tokens > 0);
+
+  const tight = assemble({ journalDays: 100000, tokens: full.tokens - 120, ...o });
+  assert.ok(tight.tokens < full.tokens);
+  assert.match(tight.dropped.join(' '), /journal: \d+ day file/);
+  assert.match(tight.text, /Works on distributed systems/);
+});
+
+test('a day that does not fit is skipped whole, never cut in half', () => {
+  const o = makeBrain();
+  mkdirSync(join(o.dir, 'journal'), { recursive: true });
+  writeFileSync(join(o.dir, 'journal', '2026-09-08.md'), `# 2026-09-08\n\n- 09:00 [cli] (fact) ${'y'.repeat(4000)}\n`);
+  const out = assemble({ journalDays: 100000, tokens: 200, ...o });
+  assert.ok(!out.text.includes('yyy'));
+  assert.match(out.dropped.join(' '), /1 day file/);
+});
+
+test('a profile larger than the whole budget is kept and reported as an error', () => {
+  const o = makeBrain();
+  writeFileSync(join(o.dir, 'self', 'profile.md'), 'z'.repeat(8000));
+  const out = assemble({ tokens: 100, ...o });
+  assert.match(out.text, /zzz/);
+  assert.match(out.dropped.join(' '), /profile: \d+ tokens, over the whole budget/);
+});
+
+test('estimateTokens follows the configured characters per token', () => {
+  assert.equal(estimateTokens('a'.repeat(40), { charsPerToken: 4 }), 10);
+  assert.equal(estimateTokens('a'.repeat(40), { charsPerToken: 8 }), 5);
 });

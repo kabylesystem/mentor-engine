@@ -15,6 +15,10 @@ const DEFAULTS = {
   notesMaxChars: 40_000,
   pullIntervalMs: 5 * 60_000,
   git: process.env.BRAIN_GIT !== '0',
+  pushAttempts: Number(process.env.BRAIN_PUSH_ATTEMPTS || 4),
+  retryBaseMs: Number(process.env.BRAIN_RETRY_MS || 250),
+  tokens: Number(process.env.BRAIN_TOKENS || 0),
+  charsPerToken: Number(process.env.BRAIN_CHARS_PER_TOKEN || 4),
 };
 
 let lastPull = 0;
@@ -61,15 +65,46 @@ export function pull(o = {}) {
   }
 }
 
+// Four clients write to the same repository with no lock between them. A push therefore
+// fails routinely, not exceptionally: someone else committed first. Rebasing our single
+// commit on top of theirs is safe here because every write is an append to a different
+// line, or a new file. We retry a few times, then give up and leave the work on disk.
 function commit(paths, message, o) {
-  if (!o.git) return;
+  if (!o.git) return { committed: false, pushed: false, attempts: 0 };
   try {
     git(['add', ...paths], o);
     git(['commit', '--quiet', '-m', message], o);
-    git(['push', '--quiet'], o, 30_000);
   } catch (err) {
-    console.error('[brain] commit or push failed, the file is still on disk:', String(err.stderr || err.message).slice(0, 300));
+    return { committed: false, pushed: false, attempts: 0, error: short(err) };
   }
+  for (let attempt = 1; attempt <= o.pushAttempts; attempt += 1) {
+    try {
+      git(['push', '--quiet'], o, 30_000);
+      return { committed: true, pushed: true, attempts: attempt };
+    } catch (err) {
+      if (attempt === o.pushAttempts) {
+        console.error(`[brain] push failed after ${attempt} attempts, the commit is local:`, short(err));
+        return { committed: true, pushed: false, attempts: attempt, error: short(err) };
+      }
+      try {
+        git(['pull', '--rebase', '--quiet'], o, 30_000);
+      } catch (rebaseErr) {
+        try { git(['rebase', '--abort'], o); } catch {}
+        console.error('[brain] rebase failed, resolve by hand:', short(rebaseErr));
+        return { committed: true, pushed: false, attempts: attempt, error: short(rebaseErr) };
+      }
+      sleep(o.retryBaseMs * attempt);
+    }
+  }
+  return { committed: true, pushed: false, attempts: o.pushAttempts };
+}
+
+function short(err) {
+  return String(err.stderr || err.message).trim().slice(0, 300);
+}
+
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 export function journalPath(date, o = {}) {
@@ -89,8 +124,8 @@ export function appendNote(text, { source = 'cli', type = DEFAULT_NOTE_TYPE, ...
   mkdirSync(join(c.dir, 'journal'), { recursive: true });
   const header = existsSync(file) ? '' : `# ${date}\n\n`;
   appendFileSync(file, `${header}- ${localTime(c)} [${source}] (${kind}) ${clean}\n`);
-  commit(['journal'], `journal: note from ${source} on ${date}`, c);
-  return { file, date, type: kind, source, text: clean };
+  const sync = commit(['journal'], `journal: note from ${source} on ${date}`, c);
+  return { file, date, type: kind, source, text: clean, sync };
 }
 
 export function parseJournal({ days, ...o } = {}) {
@@ -146,49 +181,89 @@ export function saveNote(text, { source = 'cli', ...o } = {}) {
   mkdirSync(dir, { recursive: true });
   const file = join(dir, `${slugify(title)}.md`);
   writeFileSync(file, `# ${title}\n\nSaved from ${source} on ${localDate(c)} at ${localTime(c)}\n\n${body}\n`);
-  commit(['notes'], `notes: ${title}`, c);
-  return { file, title };
+  const sync = commit(['notes'], `notes: ${title}`, c);
+  return { file, title, sync };
 }
 
-// Assembles everything an agent should know, in one string, cheapest sections last.
-// Sections that do not exist are skipped rather than announced.
-export function context(o = {}) {
+export function estimateTokens(text, o = {}) {
+  return Math.ceil(String(text).length / opts(o).charsPerToken);
+}
+
+// Context assembly is the actual problem this repository exists for. The brain grows
+// forever, the window does not, so something has to be left out on every single call.
+// The policy below is deliberate and reported back, rather than being an implicit
+// truncation nobody notices:
+//
+//   1. the profile is never dropped. It is small, hand written, and it is the part that
+//      makes the rest legible. If it alone exceeds the budget, that is a real error and
+//      the caller should know.
+//   2. the journal is filled newest first, one day at a time. Half a day is worse than
+//      no day, so a file that does not fit whole is skipped rather than cut.
+//   3. long notes and the latest review are optional. They are added while budget is
+//      left, in that order.
+//
+// Returns the assembled text plus what it cost and what was left out, so an agent can say
+// "I am missing the last eleven days" instead of quietly answering with a hole in it.
+export function assemble(o = {}) {
   const c = opts(o);
-  if (!hasBrain(c)) return '';
+  const budget = Number.isFinite(c.tokens) && c.tokens > 0 ? c.tokens : Infinity;
+  const dropped = [];
+  const sections = [];
+  let used = 0;
+
+  const cost = (text) => estimateTokens(text, c);
+  const push = (name, text) => {
+    const n = cost(text);
+    if (used + n > budget) return false;
+    sections.push(text);
+    used += n;
+    return true;
+  };
+
+  if (!hasBrain(c)) return { text: '', tokens: 0, budget, sections: [], dropped: ['brain: not found'] };
   pull(c);
 
-  const parts = [];
-
   const self = readDir(join(c.dir, 'self')).map((f) => readFileSync(join(c.dir, 'self', f), 'utf8').trim());
-  if (self.length) parts.push(`## Profile, the source of truth\n\n${self.join('\n\n---\n\n')}`);
+  if (self.length) {
+    const block = `## Profile, the source of truth\n\n${self.join('\n\n---\n\n')}`;
+    const n = cost(block);
+    sections.push(block);
+    used += n;
+    if (n > budget) dropped.push(`profile: ${n} tokens, over the whole budget of ${budget}`);
+  }
 
   const journalDir = join(c.dir, 'journal');
   const cutoff = localDate(c, new Date(Date.now() - c.journalDays * 86_400_000));
-  let journal = '';
-  for (const f of readDir(journalDir).filter((f) => f.slice(0, 10) >= cutoff).reverse()) {
-    const chunk = `${readFileSync(join(journalDir, f), 'utf8').trim()}\n\n`;
-    if (journal.length + chunk.length > c.journalMaxChars) break;
-    journal += chunk;
+  const days = readDir(journalDir).filter((f) => f.slice(0, 10) >= cutoff).reverse();
+  const kept = [];
+  let skippedDays = 0;
+  for (const f of days) {
+    const chunk = readFileSync(join(journalDir, f), 'utf8').trim();
+    const header = kept.length ? 0 : cost(`## Journal, last ${c.journalDays} days, most recent first\n\n`);
+    if (used + header + cost(chunk) + 2 > budget) { skippedDays += 1; continue; }
+    kept.push(chunk);
+    used += header + cost(chunk) + 2;
   }
-  parts.push(journal
-    ? `## Journal, last ${c.journalDays} days, most recent first\n\n${journal.trim()}`
-    : '## Journal: nothing in the recent window.');
+  if (kept.length) sections.push(`## Journal, last ${c.journalDays} days, most recent first\n\n${kept.join('\n\n')}`);
+  else sections.push('## Journal: nothing in the recent window.');
+  if (skippedDays) dropped.push(`journal: ${skippedDays} day file${skippedDays > 1 ? 's' : ''} did not fit`);
 
   const notes = readDir(join(c.dir, 'notes')).map((f) => readFileSync(join(c.dir, 'notes', f), 'utf8').trim());
   if (notes.length) {
-    let block = '';
-    for (const n of notes) {
-      if (block.length + n.length > c.notesMaxChars) break;
-      block += `${n}\n\n---\n\n`;
-    }
-    parts.push(`## Long notes\n\n${block.trim()}`);
+    const block = `## Long notes\n\n${notes.join('\n\n---\n\n')}`;
+    if (!push('notes', block)) dropped.push(`long notes: ${cost(block)} tokens did not fit`);
   }
 
   const reviews = readDir(join(c.dir, 'reviews'));
   if (reviews.length) {
     const last = reviews[reviews.length - 1];
-    parts.push(`## Latest review (${last.slice(0, 10)})\n\n${readFileSync(join(c.dir, 'reviews', last), 'utf8').trim()}`);
+    const block = `## Latest review (${last.slice(0, 10)})\n\n${readFileSync(join(c.dir, 'reviews', last), 'utf8').trim()}`;
+    if (!push('review', block)) dropped.push('latest review: did not fit');
   }
 
-  return parts.join('\n\n');
+  return { text: sections.join('\n\n'), tokens: used, budget, sections: sections.length, dropped };
+}
+
+export function context(o = {}) {
+  return assemble(o).text;
 }

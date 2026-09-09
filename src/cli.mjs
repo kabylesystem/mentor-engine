@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-import { appendNote, saveNote, context, pull, hasBrain, parseJournal, NOTE_TYPES, DEFAULT_NOTE_TYPE } from './brain.mjs';
+import { appendNote, saveNote, assemble, pull, hasBrain, parseJournal, NOTE_TYPES, DEFAULT_NOTE_TYPE } from './brain.mjs';
 
 const USAGE = `brain <command>
 
   note [--type ${NOTE_TYPES.join('|')}] "text"   append one dated line to today's journal
   save "# title\\nbody"                          write a long note as its own file
-  show                                           print the whole context an agent should read
+  show [--tokens N]                              print the context an agent should read
+  budget [--tokens N]                            print what the context costs and what was left out
   journal [--days N]                             print parsed journal entries as JSON
   sync                                           git pull the brain
 
@@ -14,6 +15,7 @@ Environment:
   BRAIN_TZ     timezone used to date entries (default: UTC)
   BRAIN_GIT    set to 0 to skip git entirely
   BRAIN_SOURCE label written next to each entry (default: cli)
+  BRAIN_TOKENS default budget for show and budget (0 means no limit)
 `;
 
 function takeFlag(args, name, fallback) {
@@ -58,7 +60,15 @@ try {
     console.log(file);
   } else if (cmd === 'show') {
     requireBrain();
-    console.log(context());
+    const { value } = takeFlag(args, 'tokens', '');
+    const out = assemble(value === '' ? {} : { tokens: Number(value) });
+    if (out.dropped.length) console.error(`[brain] left out: ${out.dropped.join('; ')}`);
+    console.log(out.text);
+  } else if (cmd === 'budget') {
+    requireBrain();
+    const { value } = takeFlag(args, 'tokens', '');
+    const out = assemble(value === '' ? {} : { tokens: Number(value) });
+    console.log(JSON.stringify({ tokens: out.tokens, budget: Number.isFinite(out.budget) ? out.budget : "none", sections: out.sections, dropped: out.dropped }, null, 2));
   } else if (cmd === 'journal') {
     requireBrain();
     const { value } = takeFlag(args, 'days', '');
