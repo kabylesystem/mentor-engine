@@ -48,7 +48,7 @@
     <text x="404" y="224" fill="#6e7681">latest one read</text>
   </g>
   <line x1="330" y1="242" x2="532" y2="242" stroke="#30363d"/>
-  <text x="330" y="264" fill="#79c0ff" font-size="11.5">agents append only, never rewrite self/</text>
+  <text x="330" y="264" fill="#79c0ff" font-size="11.5">agents never rewrite self/</text>
   <text x="330" y="282" fill="#6e7681" font-size="11.5">every write is a commit</text>
 
   <!-- arrow to assemble -->
