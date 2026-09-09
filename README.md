@@ -6,7 +6,7 @@ You write to it from anywhere: a script, a phone bot, a coding agent. When an ag
 know who it is talking to, it asks for the memory back, and gets as much of it as fits in the
 context window, plus a list of what did not fit.
 
-![How it works](docs/how-it-works.svg)
+![How it works](docs/how-it-works-v2.svg)
 
 ## In one minute
 
